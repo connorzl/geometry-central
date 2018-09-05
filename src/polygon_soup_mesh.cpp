@@ -101,13 +101,17 @@ void PolygonSoupMesh::readMeshFromFile(std::string filename) {
       vertexCoordinates.push_back(Vector3{x, y, z});
 
     } else if (token == "vt") {
-      // Do nothing
+      double x, y;
+      ss >> x >> y;
+
+      uvCoordinates.push_back(Vector2{x, y});
 
     } else if (token == "vn") {
       // Do nothing
 
     } else if (token == "f") {
       std::vector<size_t> face;
+      std::vector<size_t> uvFace;
       while (ss >> token) {
         Index index = parseFaceIndex(token);
         if (index.position < 0) {
@@ -117,9 +121,11 @@ void PolygonSoupMesh::readMeshFromFile(std::string filename) {
         }
 
         face.push_back(index.position);
+        uvFace.push_back(index.uv);
       }
 
       polygons.push_back(face);
+      uvPolygons.push_back(uvFace);
     }
   }
 }

@@ -24,7 +24,9 @@ class PolygonSoupMesh {
 
   // Mesh data
   std::vector<std::vector<size_t>> polygons;
+  std::vector<std::vector<size_t>> uvPolygons;
   std::vector<Vector3> vertexCoordinates;
+  std::vector<Vector2> uvCoordinates;
 
  private:
   void readMeshFromFile(std::string filename);

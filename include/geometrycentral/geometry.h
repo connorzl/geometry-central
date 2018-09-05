@@ -94,6 +94,8 @@ public:
   Vector3 complexAngleToTangentVector(VertexPtr v, Complex inAngle);
   Complex principalDirection(VertexPtr v); // the 2-symmetric complex vector aligned with k1
 
+  CornerData<Vector2> paramCoords;
+  
   // Edge attributes
   // --- Primal ---
   T midpoint(EdgePtr e);
@@ -148,7 +150,6 @@ public:
   void getAngularCoordinates(HalfedgeData<double>& angularCoordinates);
 
   void normalize();
-  std::vector<T> getVertexPositionList();
 
   // members
   HalfedgeMesh& mesh;

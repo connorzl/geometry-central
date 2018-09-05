@@ -526,6 +526,38 @@ HalfedgeMesh::HalfedgeMesh(const PolygonSoupMesh& input, Geometry<Euclidean>*& g
     }
   }
 
+  // process uv coordinates, if any
+  if (input.uvCoordinates.size() > 0) {
+    CornerData<Vector2> paramCoords(this);
+    // loop through input polygons
+    for (size_t i = 0; i < input.polygons.size(); i++) {
+      size_t degree = input.polygons[i].size();
+
+      // Get the uv indices for this face
+      std::vector<size_t> uvIndices = input.uvPolygons[i];
+
+      // loop through input polygon halfedges
+      HalfedgePtr curr = face(i).halfedge();
+/*
+      std::vector<size_t> coords = input.polygons[i];
+      std::cout << "ORIG: " << input.vertexCoordinates[coords[0]] << 
+      input.vertexCoordinates[coords[1]] << 
+      input.vertexCoordinates[coords[2]] << std::endl;
+
+      std::cout << "MESH: " << geometry->position(curr.vertex()) << 
+      geometry->position(curr.next().vertex()) <<
+      geometry->position(curr.next().next().vertex()) << std::endl;
+*/
+      for (size_t j = 0; j < degree; j++) {
+        // get index of tex coord in opposite corner
+        size_t ind = uvIndices[(j+2) % degree];
+        paramCoords[curr.corner()] = input.uvCoordinates[ind];
+        curr = curr.next();
+      }
+    }
+    geometry->paramCoords = paramCoords;
+  }
+
   // Print some nice statistics
   std::cout << "Constructed halfedge mesh with: " << std::endl;
   std::cout << "    # verts =  " << nVertices() << std::endl;
@@ -734,22 +766,40 @@ HalfedgeMesh* HalfedgeMesh::copy(HalfedgeMeshDataTransfer& dataTransfer) {
 
   return newMesh;
 }
-  
-std::vector<std::vector<size_t>> HalfedgeMesh::getPolygonSoupFaces() {
 
-  std::vector<std::vector<size_t>> result;
+/*
+HalfedgeMesh* HalfedgeMesh::copy() {
+  // Copy the lazy way: Build a polygon soup mesh and construct a new halfedge
+  // mesh
 
+  // TODO I'm not actually sure if this is a true fixed point. It certainly
+  // preserves
+  //      face and vertex indexing, but the other members may mutate...
+  // TODO we could avoid the constructor with some pointer pushing
+
+  std::vector<std::vector<size_t>> polygons;
   VertexData<size_t> vInd = getVertexIndices();
-  for(FacePtr f : faces()) {
-    std::vector<size_t> faceList;
-    for(VertexPtr v : f.adjacentVertices()) {
-      faceList.push_back(vInd[v]);
+  for (FacePtr f : faces()) {
+    std::vector<size_t> poly;
+    for (VertexPtr v : f.adjacentVertices()) {
+      poly.push_back(vInd[v]);
     }
-    result.push_back(faceList);
+    polygons.push_back(poly);
   }
 
-  return result;
-}
+  std::vector<Vector3> vertCoords(nVertices());
 
+  // Build a polygon soup mesh
+  PolygonSoupMesh pMesh(polygons, vertCoords);
+
+  // Construct a halfedge mesh, discard the geometry
+  Geometry<Euclidean>* geom;
+  HalfedgeMesh* mesh = new HalfedgeMesh(pMesh, geom);
+
+  delete geom;
+
+  return mesh;
+}
+*/
 
 } // namespace geometrycentral
