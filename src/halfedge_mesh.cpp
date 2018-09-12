@@ -14,6 +14,8 @@
 #include <geometrycentral/polygon_soup_mesh.h>
 #include <geometrycentral/timing.h>
 
+#include "geometrycentral/distortion.h"
+
 using std::cout;
 using std::endl;
 
@@ -528,7 +530,7 @@ HalfedgeMesh::HalfedgeMesh(const PolygonSoupMesh& input, Geometry<Euclidean>*& g
 
   // process uv coordinates, if any
   if (input.uvCoordinates.size() > 0) {
-    CornerData<Vector2> paramCoords(this);
+    HalfedgeData<Vector2> paramCoords(this);
     // loop through input polygons
     for (size_t i = 0; i < input.polygons.size(); i++) {
       size_t degree = input.polygons[i].size();
@@ -538,25 +540,20 @@ HalfedgeMesh::HalfedgeMesh(const PolygonSoupMesh& input, Geometry<Euclidean>*& g
 
       // loop through input polygon halfedges
       HalfedgePtr curr = face(i).halfedge();
-/*
-      std::vector<size_t> coords = input.polygons[i];
-      std::cout << "ORIG: " << input.vertexCoordinates[coords[0]] << 
-      input.vertexCoordinates[coords[1]] << 
-      input.vertexCoordinates[coords[2]] << std::endl;
-
-      std::cout << "MESH: " << geometry->position(curr.vertex()) << 
-      geometry->position(curr.next().vertex()) <<
-      geometry->position(curr.next().next().vertex()) << std::endl;
-*/
       for (size_t j = 0; j < degree; j++) {
         // get index of tex coord in opposite corner
         size_t ind = uvIndices[(j+2) % degree];
-        paramCoords[curr.corner()] = input.uvCoordinates[ind];
+        paramCoords[curr] = input.uvCoordinates[ind];
         curr = curr.next();
       }
     }
     geometry->paramCoords = paramCoords;
   }
+
+  // temporary until i figure out how to compile basic_project
+  Vector3 areaDistortion = Distortion::computeAreaScaling(this, geometry);
+  std::cout << "AREA DISTORTION: min: " << areaDistortion[0] << " max: " << areaDistortion[1] << " avg: " << areaDistortion[2] << std::endl;
+  Vector3 angleDistortion = Distortion::computeQuasiConformalError(this, geometry);
 
   // Print some nice statistics
   std::cout << "Constructed halfedge mesh with: " << std::endl;
