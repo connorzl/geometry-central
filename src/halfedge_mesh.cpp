@@ -553,7 +553,15 @@ HalfedgeMesh::HalfedgeMesh(const PolygonSoupMesh& input, Geometry<Euclidean>*& g
   // temporary until i figure out how to compile basic_project
   Vector3 areaDistortion = Distortion::computeAreaScaling(this, geometry);
   std::cout << "AREA DISTORTION: min: " << areaDistortion[0] << " max: " << areaDistortion[1] << " avg: " << areaDistortion[2] << std::endl;
+  
   Vector3 angleDistortion = Distortion::computeQuasiConformalError(this, geometry);
+  std::cout << "ANGLE DISTORTION: min: " << angleDistortion[0] << " max: " << angleDistortion[1] << " avg: " << angleDistortion[2] << std::endl;
+  
+  size_t trianglesFlipped = Distortion::computeTriangleFlips(this, geometry);
+  std::cout << "TRIANGLES FLIPPED: " << trianglesFlipped << std::endl;
+  
+  bool globalOverlap = Distortion::computeGlobalOverlap(this, geometry);
+  std::cout << "GLOBAL OVERLAP: " << globalOverlap << std::endl;
 
   // Print some nice statistics
   std::cout << "Constructed halfedge mesh with: " << std::endl;

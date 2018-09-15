@@ -6,6 +6,65 @@ using std::endl;
 
 std::vector<double> Distortion::distortion;
 
+size_t Distortion::computeTriangleFlips(HalfedgeMesh* mesh, Geometry<Euclidean>* geom) {
+    size_t trianglesFlipped = 0;
+    for (FacePtr f : mesh->faces()) {
+        HalfedgePtr he = f.halfedge();
+    
+        Vector2 A = geom->paramCoords[he.prev()]; 
+        Vector2 B = geom->paramCoords[he];
+        Vector2 C = geom->paramCoords[he.next()];
+
+        Vector2 AB = B - A;
+        Vector2 AC = C - A;
+        Vector3 normal = cross(AB, AC);
+        if (normal.z < 0) {
+            trianglesFlipped++;
+        }
+    }
+    return trianglesFlipped;
+}
+
+// Check for proper intersection
+bool checkIntersection(std::pair<Vector2,Vector2> e1, std::pair<Vector2,Vector2> e2) {
+    Vector2 A = e1.first;
+    Vector2 B = e1.second;
+    Vector2 C = e2.first;
+    Vector2 D = e2.second;
+
+    Vector2 AB = B - A;
+    Vector2 BC = C - B;
+    Vector2 BD = D - B;
+    Vector2 CD = D - C;
+    Vector2 DA = A - D;
+    Vector2 DB = B - D;
+
+    return (cross(AB, BC).z * cross(AB, BD).z < 0 &&
+            cross(CD, DA).z * cross(CD, DB).z < 0);
+}
+
+bool Distortion::computeGlobalOverlap(HalfedgeMesh* mesh, Geometry<Euclidean>* geom) {
+
+    std::vector<std::pair<Vector2,Vector2>> boundaryEdges(mesh->nImaginaryHalfedges());
+
+    // loop through "imaginary" boundary edges
+    for (size_t i = 0; i < mesh->nImaginaryHalfedges(); i++) {
+        HalfedgePtr he = mesh->imaginaryHalfedge(i).twin();
+        Vector2 A = geom->paramCoords[he.next()];
+        Vector2 B = geom->paramCoords[he.prev()];
+        boundaryEdges.push_back(std::make_pair(A, B));
+    }
+
+    for (size_t i = 0; i < mesh->nImaginaryHalfedges(); i++) {
+        for (size_t j = i+1; j < mesh->nImaginaryHalfedges(); j++) {
+            if (checkIntersection(boundaryEdges[i], boundaryEdges[j])) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 double computeAreaScaling(const std::vector<Vector3>& p, const std::vector<Vector3>& q) {
     // Compute edge vectors and areas
     Vector3 u1 = p[1] - p[0]; 

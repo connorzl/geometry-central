@@ -13,6 +13,10 @@ class Distortion {
         // computes (min, max, average) quasi conformal error
         static Vector3 computeQuasiConformalError(HalfedgeMesh* mesh, Geometry<Euclidean>* geom);
 
+        static bool computeGlobalOverlap(HalfedgeMesh* mesh, Geometry<Euclidean>* geom);
+
+        static size_t computeTriangleFlips(HalfedgeMesh* mesh, Geometry<Euclidean>* geom);
+
     private:
         static std::vector<double> distortion;
 };
