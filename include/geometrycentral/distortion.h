@@ -17,6 +17,10 @@ class Distortion {
 
         static size_t computeTriangleFlips(HalfedgeMesh* mesh, Geometry<Euclidean>* geom);
 
+        static FaceData<double> areaDistortion;
+        static FaceData<double> angleDistortion;
+        static FaceData<double> trianglesFlipped;
+
     private:
         static std::vector<double> distortion;
 };

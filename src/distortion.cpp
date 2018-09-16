@@ -5,9 +5,15 @@ using std::cout;
 using std::endl;
 
 std::vector<double> Distortion::distortion;
+FaceData<double> Distortion::areaDistortion;
+FaceData<double> Distortion::angleDistortion;
+FaceData<double> Distortion::trianglesFlipped;
 
 size_t Distortion::computeTriangleFlips(HalfedgeMesh* mesh, Geometry<Euclidean>* geom) {
-    size_t trianglesFlipped = 0;
+
+    FaceData<double> trianglesFlipped(mesh);
+
+    size_t numFlipped = 0;
     for (FacePtr f : mesh->faces()) {
         HalfedgePtr he = f.halfedge();
     
@@ -19,10 +25,25 @@ size_t Distortion::computeTriangleFlips(HalfedgeMesh* mesh, Geometry<Euclidean>*
         Vector2 AC = C - A;
         Vector3 normal = cross(AB, AC);
         if (normal.z < 0) {
-            trianglesFlipped++;
+            trianglesFlipped[f] = 1.0;
+            numFlipped++;
+        } else {
+            trianglesFlipped[f] = 0.0;
         }
     }
-    return trianglesFlipped;
+
+    Distortion::trianglesFlipped = trianglesFlipped;
+    return numFlipped;
+}
+
+// Check if point C lies on open line segment AB
+bool onSegment(Vector2 A, Vector2 C, Vector2 B) {
+    Vector2 AC = C - A;
+    Vector2 AB = B - A;
+    double eps = 0.0001;
+    double dotABAC = dot(AB,AC);
+    return (std::abs(cross(AC, AB).z) <= eps && 
+            eps < dotABAC && dotABAC < dot(AB, AB));
 }
 
 // Check for proper intersection
@@ -32,6 +53,7 @@ bool checkIntersection(std::pair<Vector2,Vector2> e1, std::pair<Vector2,Vector2>
     Vector2 C = e2.first;
     Vector2 D = e2.second;
 
+    // Check for proper intersection
     Vector2 AB = B - A;
     Vector2 BC = C - B;
     Vector2 BD = D - B;
@@ -39,12 +61,21 @@ bool checkIntersection(std::pair<Vector2,Vector2> e1, std::pair<Vector2,Vector2>
     Vector2 DA = A - D;
     Vector2 DB = B - D;
 
-    return (cross(AB, BC).z * cross(AB, BD).z < 0 &&
-            cross(CD, DA).z * cross(CD, DB).z < 0);
+    if (cross(AB, BC).z * cross(AB, BD).z < 0 && cross(CD, DA).z * cross(CD, DB).z < 0) {
+        return true;
+    }
+
+    // Check for improper intersection
+    if  (onSegment(A, C, B) || 
+         onSegment(A, D, B) ||
+         onSegment(C, A, D) ||
+         onSegment(C, B, D)) {
+        return true;
+    }
+    return false;
 }
 
 bool Distortion::computeGlobalOverlap(HalfedgeMesh* mesh, Geometry<Euclidean>* geom) {
-
     std::vector<std::pair<Vector2,Vector2>> boundaryEdges(mesh->nImaginaryHalfedges());
 
     // loop through "imaginary" boundary edges
@@ -62,6 +93,7 @@ bool Distortion::computeGlobalOverlap(HalfedgeMesh* mesh, Geometry<Euclidean>* g
             }
         }
     }
+    
     return false;
 }
 
@@ -86,6 +118,8 @@ Vector3 Distortion::computeAreaScaling(HalfedgeMesh* mesh, Geometry<Euclidean>* 
     distortion.resize(mesh->nFaces());
     std::vector<Vector3> p(3), q(3);
 
+    FaceData<double> areaDistortion(mesh);
+
     for (size_t i = 0; i < mesh->nFaces(); i++) {
         FacePtr f = mesh->face(i);
         HalfedgePtr he = f.halfedge();
@@ -106,10 +140,12 @@ Vector3 Distortion::computeAreaScaling(HalfedgeMesh* mesh, Geometry<Euclidean>* 
 
         // Clamp to range [0.0, 1.0]
         distortion[i] = std::max(0.0, std::min(1.0, u));
+        areaDistortion[f] = distortion[i];
         minU = std::min(minU, u);
         maxU = std::max(maxU, u);
     }
 
+    Distortion::areaDistortion = areaDistortion;
     return Vector3 { minU, maxU, totalU / totalArea };
 }
 
@@ -165,6 +201,8 @@ Vector3 Distortion::computeQuasiConformalError(HalfedgeMesh* mesh, Geometry<Eucl
     distortion.resize(mesh->nFaces());
     std::vector<Vector3> p(3), q(3);
 
+    FaceData<double> angleDistortion(mesh);
+
     for (size_t i = 0; i < mesh->nFaces(); i++) {
         FacePtr f = mesh->face(i);
         HalfedgePtr he = f.halfedge();
@@ -185,9 +223,11 @@ Vector3 Distortion::computeQuasiConformalError(HalfedgeMesh* mesh, Geometry<Eucl
 
         // Clamp distortion to [1, 1.5]
         distortion[i] = std::max(1.0, std::min(1.5, qc));
+        angleDistortion[f] = distortion[i];
         maxQc = std::max(maxQc, qc);
         minQc = std::min(minQc, qc);
     }
 
+    Distortion::angleDistortion = angleDistortion;
     return Vector3 { minQc, maxQc, totalQc / totalArea};
 }
