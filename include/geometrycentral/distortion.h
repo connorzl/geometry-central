@@ -7,20 +7,27 @@ using namespace geometrycentral;
 
 class Distortion {
     public: 
+
+        Distortion(HalfedgeMesh* mesh, Geometry<Euclidean>* geom);
+
         // computes (min, max, average) area distortion
-        static Vector3 computeAreaScaling(HalfedgeMesh* mesh, Geometry<Euclidean>* geom);
+        Vector3 computeAreaScaling();
 
         // computes (min, max, average) quasi conformal error
-        static Vector3 computeQuasiConformalError(HalfedgeMesh* mesh, Geometry<Euclidean>* geom);
+        Vector3 computeQuasiConformalError();
 
-        static bool computeGlobalOverlap(HalfedgeMesh* mesh, Geometry<Euclidean>* geom);
+        bool computeGlobalOverlap();
 
-        static size_t computeTriangleFlips(HalfedgeMesh* mesh, Geometry<Euclidean>* geom);
+        size_t computeTriangleFlips();
 
-        static FaceData<double> areaDistortion;
-        static FaceData<double> angleDistortion;
-        static FaceData<double> trianglesFlipped;
+        float computeSeamLength();
+
+        FaceData<double> areaDistortion;
+        FaceData<double> angleDistortion;
+        FaceData<double> trianglesFlipped;
 
     private:
-        static std::vector<double> distortion;
+        std::vector<double> distortion;
+        HalfedgeMesh* mesh;
+        Geometry<Euclidean>* geom;
 };

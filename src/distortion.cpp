@@ -4,14 +4,11 @@ using namespace geometrycentral;
 using std::cout;
 using std::endl;
 
-std::vector<double> Distortion::distortion;
-FaceData<double> Distortion::areaDistortion;
-FaceData<double> Distortion::angleDistortion;
-FaceData<double> Distortion::trianglesFlipped;
+Distortion::Distortion(HalfedgeMesh* m, Geometry<Euclidean>* g) : mesh(m), geom(g) {}
 
-size_t Distortion::computeTriangleFlips(HalfedgeMesh* mesh, Geometry<Euclidean>* geom) {
+size_t Distortion::computeTriangleFlips() {
 
-    FaceData<double> trianglesFlipped(mesh);
+    trianglesFlipped = FaceData<double>(mesh);
 
     size_t numFlipped = 0;
     for (FacePtr f : mesh->faces()) {
@@ -31,8 +28,6 @@ size_t Distortion::computeTriangleFlips(HalfedgeMesh* mesh, Geometry<Euclidean>*
             trianglesFlipped[f] = 0.0;
         }
     }
-
-    Distortion::trianglesFlipped = trianglesFlipped;
     return numFlipped;
 }
 
@@ -75,7 +70,7 @@ bool checkIntersection(std::pair<Vector2,Vector2> e1, std::pair<Vector2,Vector2>
     return false;
 }
 
-bool Distortion::computeGlobalOverlap(HalfedgeMesh* mesh, Geometry<Euclidean>* geom) {
+bool Distortion::computeGlobalOverlap() {
     std::vector<std::pair<Vector2,Vector2>> boundaryEdges(mesh->nImaginaryHalfedges());
 
     // loop through "imaginary" boundary edges
@@ -93,7 +88,7 @@ bool Distortion::computeGlobalOverlap(HalfedgeMesh* mesh, Geometry<Euclidean>* g
             }
         }
     }
-    
+  
     return false;
 }
 
@@ -107,19 +102,19 @@ double computeAreaScaling(const std::vector<Vector3>& p, const std::vector<Vecto
     Vector3 v2 = q[2] - q[0];
     double area = norm(cross(v1, v2));
 
-    return log(area / Area);
+    return std::max(0.0,log(area / Area));
 }
 
-Vector3 Distortion::computeAreaScaling(HalfedgeMesh* mesh, Geometry<Euclidean>* geom) {
+Vector3 Distortion::computeAreaScaling() {
     double totalU = 0.0;
     double minU = std::numeric_limits<double>::infinity();
     double maxU = -std::numeric_limits<double>::infinity();
     double totalArea = 0.0;
-    distortion.resize(mesh->nFaces());
+
     std::vector<Vector3> p(3), q(3);
-
-    FaceData<double> areaDistortion(mesh);
-
+    distortion.resize(mesh->nFaces());
+    areaDistortion = FaceData<double>(mesh);
+    
     for (size_t i = 0; i < mesh->nFaces(); i++) {
         FacePtr f = mesh->face(i);
         HalfedgePtr he = f.halfedge();
@@ -132,7 +127,7 @@ Vector3 Distortion::computeAreaScaling(HalfedgeMesh* mesh, Geometry<Euclidean>* 
 
             he = he.next();
         } while (he != f.halfedge());
-
+        
         double u = ::computeAreaScaling(p, q);
         double area = geom->area(f);
         totalU += u * area;
@@ -144,8 +139,7 @@ Vector3 Distortion::computeAreaScaling(HalfedgeMesh* mesh, Geometry<Euclidean>* 
         minU = std::min(minU, u);
         maxU = std::max(maxU, u);
     }
-
-    Distortion::areaDistortion = areaDistortion;
+    
     return Vector3 { minU, maxU, totalU / totalArea };
 }
 
@@ -193,7 +187,7 @@ double computeQuasiConformalerror(std::vector<Vector3>& p, std::vector<Vector3>&
     return Gamma/gamma;
 }
 
-Vector3 Distortion::computeQuasiConformalError(HalfedgeMesh* mesh, Geometry<Euclidean>* geom) {
+Vector3 Distortion::computeQuasiConformalError() {
     double totalQc = 0.0;
     double minQc = std::numeric_limits<double>::infinity();
     double maxQc = -std::numeric_limits<double>::infinity();
@@ -201,7 +195,7 @@ Vector3 Distortion::computeQuasiConformalError(HalfedgeMesh* mesh, Geometry<Eucl
     distortion.resize(mesh->nFaces());
     std::vector<Vector3> p(3), q(3);
 
-    FaceData<double> angleDistortion(mesh);
+    angleDistortion = FaceData<double>(mesh);
 
     for (size_t i = 0; i < mesh->nFaces(); i++) {
         FacePtr f = mesh->face(i);
@@ -218,6 +212,7 @@ Vector3 Distortion::computeQuasiConformalError(HalfedgeMesh* mesh, Geometry<Eucl
 
         double qc = ::computeQuasiConformalerror(p, q);
         double area = geom->area(f);
+        
         totalQc += qc * area;
         totalArea += area;
 
@@ -228,6 +223,15 @@ Vector3 Distortion::computeQuasiConformalError(HalfedgeMesh* mesh, Geometry<Eucl
         minQc = std::min(minQc, qc);
     }
 
-    Distortion::angleDistortion = angleDistortion;
     return Vector3 { minQc, maxQc, totalQc / totalArea};
+}
+
+float Distortion::computeSeamLength() {
+    float seamLength = 0;
+    // loop through "imaginary" boundary edges
+    for (size_t i = 0; i < mesh->nImaginaryHalfedges(); i++) {
+        EdgePtr e = mesh->imaginaryHalfedge(i).edge();
+        seamLength += geom->length(e);
+    }
+    return seamLength;
 }
