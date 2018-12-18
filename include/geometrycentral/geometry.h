@@ -95,6 +95,7 @@ public:
   Complex principalDirection(VertexPtr v); // the 2-symmetric complex vector aligned with k1
 
   HalfedgeData<Vector2> paramCoords;
+  VertexData<Vector2> uvCoords;
   
   // Edge attributes
   // --- Primal ---
