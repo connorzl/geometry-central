@@ -6,10 +6,10 @@
 
 using namespace geometrycentral;
 
-class Tutte {
+class SpectralConformal {
     public:
-        Tutte(HalfedgeMesh* m, Geometry<Euclidean>* g);
-        void computeTutteEmbedding();
+        SpectralConformal(HalfedgeMesh* m, Geometry<Euclidean>* g);
+        void computeSpectralConformal();
 
     private:
         HalfedgeMesh* mesh;
@@ -19,8 +19,9 @@ class Tutte {
 
         // helpers
         void separateVertices();
-        Eigen::MatrixXd mapToUnitCircle();
-        Eigen::SparseMatrix<double> createKMatrix();
+        Eigen::SparseMatrix<std::complex<double>> createEDMatrix();
+        Eigen::SparseMatrix<std::complex<double>> createAMatrix();
+        double computeResidual(Eigen::SparseMatrix<std::complex<double>> EC, Eigen::MatrixXcd x);
         void writeToFile(std::ofstream &outfile);
         void normalize();
 };
