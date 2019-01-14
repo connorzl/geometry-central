@@ -6,10 +6,10 @@
 
 using namespace geometrycentral;
 
-class SpectralConformal {
+class LSCM {
     public:
-        SpectralConformal(HalfedgeMesh* m, Geometry<Euclidean>* g);
-        void computeSpectralConformal();
+        LSCM(HalfedgeMesh* m, Geometry<Euclidean>* g);
+        void computeLSCM();
 
     private:
         HalfedgeMesh* mesh;
@@ -18,9 +18,9 @@ class SpectralConformal {
         VertexData<Vector2> uvCoords;
 
         // helpers
+        void separateVertices(VertexPtr v1, VertexPtr v2);
         Eigen::SparseMatrix<std::complex<double>> createEDMatrix();
         Eigen::SparseMatrix<std::complex<double>> createAMatrix();
-        double computeResidual(Eigen::SparseMatrix<std::complex<double>> EC, Eigen::MatrixXcd x);
         void writeToFile(std::ofstream &outfile);
         void normalize();
 };

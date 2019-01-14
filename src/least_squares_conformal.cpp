@@ -1,11 +1,25 @@
-#include "geometrycentral/spectral_conformal.h"
+#include "geometrycentral/least_squares_conformal.h"
 #include<Eigen/SparseCholesky>
 
 using namespace geometrycentral;
 
-SpectralConformal::SpectralConformal(HalfedgeMesh* m, Geometry<Euclidean>* g) : mesh(m), geom(g), vertexIndices(mesh), uvCoords(mesh) {}
+LSCM::LSCM(HalfedgeMesh* m, Geometry<Euclidean>* g) : mesh(m), geom(g), vertexIndices(mesh), uvCoords(mesh) {}
 
-Eigen::SparseMatrix<std::complex<double>> SpectralConformal::createEDMatrix() {
+void LSCM::separateVertices(VertexPtr v1, VertexPtr v2) {
+     // remap the vertex indices to interior and boundary
+    int iN = 0;
+    int bN = mesh->nVertices()-2;
+
+    for (VertexPtr v : mesh->vertices()) {
+        if (v == v1 || v == v2) {
+            vertexIndices[v] = bN++;
+        } else {
+            vertexIndices[v] = iN++;
+        }
+    }
+}
+
+Eigen::SparseMatrix<std::complex<double>> LSCM::createEDMatrix() {
     size_t n = mesh->nVertices();
     Eigen::SparseMatrix<std::complex<double>> ED(n,n);
     std::vector<Eigen::Triplet<std::complex<double>>> triplets;
@@ -32,7 +46,7 @@ Eigen::SparseMatrix<std::complex<double>> SpectralConformal::createEDMatrix() {
     return ED;
 }
 
-Eigen::SparseMatrix<std::complex<double>> SpectralConformal::createAMatrix() {
+Eigen::SparseMatrix<std::complex<double>> LSCM::createAMatrix() {
     size_t n = mesh->nVertices();
     Eigen::SparseMatrix<std::complex<double>> A(n,n);
     std::complex<double> c1 (0,0.25);
@@ -49,68 +63,77 @@ Eigen::SparseMatrix<std::complex<double>> SpectralConformal::createAMatrix() {
     return A;
 }
 
-// Compute Residual = Ax − (x^T Ax)x, where A is n x n and x is n x 1 unit vector
-double SpectralConformal::computeResidual(Eigen::SparseMatrix<std::complex<double>> A, Eigen::MatrixXcd x) {
-    Eigen::MatrixXcd Ax = A * x;                       // n x 1
-    Eigen::MatrixXcd xH = x.adjoint();                 // 1 x n
-    Eigen::MatrixXcd xHAx = xH * Ax;                   // 1 x 1
-    Eigen::MatrixXcd xHx = xH * x;                     // 1 x 1
-    std::complex<double> lambda = xHAx(0,0) / xHx(0,0);
-
-    Eigen::MatrixXcd resid = Ax - lambda * x;          // n x 1
-    double r = resid.norm();
-
-    std::cout<< r <<std::endl;
-    return r;
-}
-
-void SpectralConformal::computeSpectralConformal() {
-    // compute vertex indices
-    vertexIndices = mesh->getVertexIndices();
+void LSCM::computeLSCM() {
+    // Find 2 fixed vertices on the boundary
+    VertexPtr v1;
+    VertexPtr v2;
+    double maxDistance = 0;
+    for (HalfedgePtr p1 : mesh->imaginaryHalfedges()) {
+        for (HalfedgePtr p2 : mesh->imaginaryHalfedges()) {
+            double distance = norm(geom->position(p1.vertex()) - geom->position(p2.vertex()));
+            if (distance > maxDistance) {
+                v1 = p1.vertex();
+                v2 = p2.vertex();
+                maxDistance = distance;
+            }
+        }
+    }
+    // fix these two vertices
+    Eigen::MatrixXcd P2(2,1);
+    P2(0,0) = std::complex<double>(0,-1);
+    P2(1,0) = std::complex<double>(0,1);
+    
+    // compute vertex indices, separate vertices into [ unknown, fixed ]^T
+    separateVertices(v1,v2);
     
     // Build EC matrix = Dirichlet energy matrix - area matrix
     Eigen::SparseMatrix<std::complex<double>> ED = 0.5 * createEDMatrix();
     Eigen::SparseMatrix<std::complex<double>> A = createAMatrix();
     Eigen::SparseMatrix<std::complex<double>> EC = ED - A;
 
-    // Solve using inverse power method 
-    size_t n = EC.rows();
-    Eigen::SimplicialLLT<Eigen::SparseMatrix<std::complex<double>>> solver;
-    solver.compute(EC);
-    Eigen::MatrixXcd ones = Eigen::MatrixXcd::Ones(n,1);
-    Eigen::MatrixXcd x = Eigen::MatrixXcd::Random(n,1);
+    // Extract K1, B^T, B, K2
+    int iN = mesh->nVertices()-2;
+    int bN = 2;
+    Eigen::SparseMatrix<std::complex<double>> K1 = EC.block(0, 0, iN, iN); 
+    Eigen::SparseMatrix<std::complex<double>> BT = EC.block(0, iN, iN, bN);
 
-    do {
-        // solve step
-        x = solver.solve(x);
+    // Solve for interior vertex uv-coordinates (P1)
+    // K1 * P1 + BT * P2 = 0 -> K1 * P1 = -BT * P2 
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<std::complex<double>>> solver;
+    solver.compute(K1);
+    if(solver.info()!= Eigen::Success) {
+        std::cout << "Decomposition Failed!" << std::endl;
+        return;
+    }   
 
-        // subtract mean
-        std::complex<double> mean = x.sum() / (double)n;
-        x = x - mean * ones;
-        
-        // normalize
-        x = x / x.norm();
-
-    } while (computeResidual(EC,x) > 1.0f * pow(10,-10));
+    Eigen::MatrixXcd P1 = solver.solve(-BT * P2);
+    if(solver.info()!= Eigen::Success) {
+        std::cout << "Solving Failed!" << std::endl;
+        return;
+    }   
 
     // assign flattening
     for (VertexPtr v : mesh->vertices()) {
-        size_t index = vertexIndices[v];
-        std::complex<double> c = x(index,0);
-        uvCoords[v] = Vector2{c.real(), c.imag()};
+        int index = vertexIndices[v];
+        if (v == v1 || v == v2) {
+            index -= iN;
+            uvCoords[v] = Vector2{P2(index, 0).real(), P2(index, 0).imag()};
+        } else {
+            uvCoords[v] = Vector2{P1(index, 0).real(), P1(index, 0).imag()};
+        }
     }
 
     // normalize
     normalize();
 
     // write output obj file
-    std::ofstream outfile ("SpectralConformal.obj");
+    std::ofstream outfile ("LSCM.obj");
     writeToFile(outfile);
     outfile.close();
     std::cout<<"Done!"<<std::endl;
 }
 
-void SpectralConformal::writeToFile(std::ofstream &outfile) {
+void LSCM::writeToFile(std::ofstream &outfile) {
     // write vertices
     for (VertexPtr v : mesh->vertices()) {
         outfile << "v " << geom->position(v).x << " " << geom->position(v).y << " " << geom->position(v).z << std::endl;
@@ -138,7 +161,7 @@ void SpectralConformal::writeToFile(std::ofstream &outfile) {
    outfile.close();
 }
 
-void SpectralConformal::normalize() {
+void LSCM::normalize() {
     // compute center of mass
     Vector2 cm = {0,0};
     for (VertexPtr v : mesh->vertices()) {
