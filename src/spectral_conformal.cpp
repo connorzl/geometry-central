@@ -64,7 +64,7 @@ double SpectralConformal::computeResidual(Eigen::SparseMatrix<std::complex<doubl
     return r;
 }
 
-void SpectralConformal::computeSpectralConformal() {
+VertexData<Vector2> SpectralConformal::computeSpectralConformal() {
     // compute vertex indices
     vertexIndices = mesh->getVertexIndices();
     
@@ -107,7 +107,9 @@ void SpectralConformal::computeSpectralConformal() {
     std::ofstream outfile ("SpectralConformal.obj");
     writeToFile(outfile);
     outfile.close();
-    std::cout<<"Done!"<<std::endl;
+    std::cout<<"Done SCP!"<<std::endl;
+
+    return uvCoords;
 }
 
 void SpectralConformal::writeToFile(std::ofstream &outfile) {

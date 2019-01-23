@@ -63,7 +63,7 @@ Eigen::SparseMatrix<std::complex<double>> LSCM::createAMatrix() {
     return A;
 }
 
-void LSCM::computeLSCM() {
+VertexData<Vector2> LSCM::computeLSCM() {
     // Find 2 fixed vertices on the boundary
     VertexPtr v1;
     VertexPtr v2;
@@ -99,17 +99,17 @@ void LSCM::computeLSCM() {
 
     // Solve for interior vertex uv-coordinates (P1)
     // K1 * P1 + BT * P2 = 0 -> K1 * P1 = -BT * P2 
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<std::complex<double>>> solver;
+    Eigen::SimplicialLLT<Eigen::SparseMatrix<std::complex<double>>> solver;
     solver.compute(K1);
     if(solver.info()!= Eigen::Success) {
         std::cout << "Decomposition Failed!" << std::endl;
-        return;
+        return nullptr;
     }   
 
     Eigen::MatrixXcd P1 = solver.solve(-BT * P2);
     if(solver.info()!= Eigen::Success) {
         std::cout << "Solving Failed!" << std::endl;
-        return;
+        return nullptr;
     }   
 
     // assign flattening
@@ -130,7 +130,9 @@ void LSCM::computeLSCM() {
     std::ofstream outfile ("LSCM.obj");
     writeToFile(outfile);
     outfile.close();
-    std::cout<<"Done!"<<std::endl;
+    std::cout<<"Done LSCM!"<<std::endl;
+
+    return uvCoords;
 }
 
 void LSCM::writeToFile(std::ofstream &outfile) {

@@ -9,7 +9,7 @@ using namespace geometrycentral;
 class SpectralConformal {
     public:
         SpectralConformal(HalfedgeMesh* m, Geometry<Euclidean>* g);
-        void computeSpectralConformal();
+        VertexData<Vector2> computeSpectralConformal();
 
     private:
         HalfedgeMesh* mesh;

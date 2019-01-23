@@ -9,7 +9,7 @@ using namespace geometrycentral;
 class LSCM {
     public:
         LSCM(HalfedgeMesh* m, Geometry<Euclidean>* g);
-        void computeLSCM();
+        VertexData<Vector2> computeLSCM();
 
     private:
         HalfedgeMesh* mesh;
