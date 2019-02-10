@@ -124,7 +124,7 @@ Eigen::MatrixXcd ARAP::computebVector(FaceData<Eigen::Matrix2d> const &L) {
                 std::complex<double> sub((xi-xj).x, (xi-xj).y);    
                 std::complex<double> rot(Lt_ji(0,0), Lt_ji(1,0));
                 b(index,0) += cotan_ji * rot * sub / 2.0;
-            }
+            }            
         } 
     }
     return b;
