@@ -1,5 +1,5 @@
 #include "geometrycentral/arap.h"
-#include<Eigen/SparseCholesky>
+#include <Eigen/SparseCholesky>
 #include <Eigen/SVD>
 #include <Eigen/Dense>
 using namespace geometrycentral;
