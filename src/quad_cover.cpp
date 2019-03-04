@@ -2,11 +2,12 @@
 #include <Eigen/SparseCholesky>
 
 // ONLY WORKS FOR MESHES WITHOUT BOUNDARY
-QuadCover::QuadCover(HalfedgeMesh* m, Geometry<Euclidean>* g) : mesh(m), geom(g), r(m), field(m), singularities(m) {
+QuadCover::QuadCover(HalfedgeMesh* m, Geometry<Euclidean>* g) : mesh(m), geom(g), phi(m), r(m), field(m), 
+                                                                singularities(m), branchCover(m) {
     assert(mesh->nBoundaryLoops() == 0);
 }
 
-HalfedgeData<std::complex<double>> QuadCover::setup() {
+void QuadCover::setup() {
     VertexData<double> s(mesh);
     // Compute s_i at each vertex
     for (VertexPtr v : mesh->vertices()) {
@@ -21,7 +22,6 @@ HalfedgeData<std::complex<double>> QuadCover::setup() {
         }
     }
     
-    HalfedgeData<double> phi(mesh);
     // Compute transport at edges r_ij <- e^ip_ij
     for (VertexPtr v : mesh->vertices()) {
         HalfedgePtr he = v.halfedge();
@@ -34,23 +34,16 @@ HalfedgeData<std::complex<double>> QuadCover::setup() {
         } while (he != v.halfedge());
     }
 
-    // Compute rho_ij
-    double n = 4;
+    // Compute r_ij
     std::complex<double> i(0, 1);
     for (VertexPtr v : mesh->vertices()) {
         for (HalfedgePtr he : v.outgoingHalfedges()) {
             double theta_ij = phi[he];
-            double theta_ji = phi[he.twin()];
-            double rho_ij = -(theta_ji + M_PI - theta_ij);
-            if (rho_ij > M_PI) {
-                rho_ij -= 2*M_PI;
-            } else if (rho_ij < -M_PI) {
-                rho_ij += 2*M_PI;
-            }
+            double theta_ji = phi[he.twin()] + M_PI;
+            double rho_ij = theta_ij - theta_ji;
             r[he] = std::exp(i * n * rho_ij);
         }
     }   
-    return r;
 }
 
 Eigen::SparseMatrix<std::complex<double>> QuadCover::assembleM() {
@@ -130,7 +123,6 @@ void QuadCover::computeSmoothestField(Eigen::SparseMatrix<std::complex<double>> 
 
     // inverse power iteration to find eigenvector belonging to the smallest eigenvalue
     for (int i = 0; i < nPowerIterations; i++) {
-        std::cout << "Iteration: " << i << std::endl;
         x = solver.solve(M * u);
         std::complex<double> norm2 = (x.transpose() * M * x)(0,0);
         u = x / sqrt(norm2);
@@ -149,8 +141,9 @@ void QuadCover::computeSmoothestField(Eigen::SparseMatrix<std::complex<double>> 
 } 
 
 VertexData<std::complex<double>> QuadCover::computeCrossField() {
+    std::cout << "Computing Cross Field!" << std::endl;
     // Algorithm 1 : Setup
-    HalfedgeData<std::complex<double>> r = setup();
+    setup();
 
     // Algorithm 2 : Smoothest Field
     Eigen::SparseMatrix<std::complex<double>> M = assembleM();
@@ -177,10 +170,10 @@ FaceData<int> QuadCover::computeSingularities() {
     // w_ij = arg(u_j / (r_ij * u_i))
     HalfedgeData<double> w(mesh);
     for (HalfedgePtr he : mesh->allHalfedges()) {
-        std::complex<double> u_j = field[he.twin().vertex()];
         std::complex<double> u_i = field[he.vertex()];
+        std::complex<double> u_j = field[he.twin().vertex()];        
         std::complex<double> r_ij = r[he];
-        w[he] = std::arg(u_i / (r_ij * u_j));
+        w[he] = std::arg(u_j * r_ij / u_i);
     }
 
     // finally, compute index for each triangle t
@@ -190,9 +183,191 @@ FaceData<int> QuadCover::computeSingularities() {
         double w_jk = w[f.halfedge().next()];
         double w_ki = w[f.halfedge().prev()];
         double Omega_ijk = Omega[f];
-        double phi = (1. / (2*M_PI)) * (w_ij + w_jk + w_ki + Omega_ijk);
+        double phi = (w_ij + w_jk + w_ki - Omega_ijk) / (2.0 * M_PI);
         singularities[f] = std::round(phi);
-        assert((phi+1.0 <= __DBL_EPSILON__) || (phi <= __DBL_EPSILON__) || (phi-1.0 <= __DBL_EPSILON__));
     }
     return singularities;
+}
+
+void QuadCover::computeBranchCover() {
+    std::cout<< "Computing Branch Cover!" << std::endl;
+    std::complex<double> i(0, 1);
+    for (FacePtr f : mesh->faces()) {
+        int total = 0;
+        for (HalfedgePtr he_ij : f.adjacentHalfedges()) {
+            HalfedgePtr he_ji = he_ij.twin();
+
+            std::complex<double> f_ij = std::pow(field[he_ij.vertex()], 1.0 / n);
+            std::complex<double> f_ji = std::pow(field[he_ji.vertex()], 1.0 / n);
+            
+            // we need to recompute r_ij here without raising to the nth power, 
+            // as raising to the nth power and then taking the nth root is not always an identity operation
+            double theta_ij = phi[he_ij];
+            double theta_ji = phi[he_ij.twin()] + M_PI;
+            double rho_ij = theta_ji - theta_ij;
+            std::complex<double> r_ij = std::exp(i * rho_ij);
+            
+            std::complex<double> s_ij = f_ji / (f_ij * r_ij);           
+            if ( (std::arg(s_ij)) >= -M_PI_2 && (std::arg(s_ij)) < M_PI_2 ) {
+                branchCover[he_ij.edge()] = 0;
+            } else {
+                branchCover[he_ij.edge()] = 1;
+                total = (total + 1) % 2;
+            }
+        }   
+        
+        if (singularities[f] != 0 && total == 0) {
+            std::cout << "difference at singularity: " << total << std::endl;
+        } else if (singularities[f] == 0 && total != 0) {
+            std::cout << "difference at non-singularity: " << total << std::endl; 
+        }
+    }
+}
+
+Eigen::SparseMatrix<std::complex<double>> QuadCover::buildLaplacian() {
+    size_t n = mesh->nVertices();
+    Eigen::SparseMatrix<std::complex<double>> L(n,n);
+    std::vector<Eigen::Triplet<std::complex<double>>> triplets;
+    
+    VertexData<size_t> vertexIndices = mesh->getVertexIndices();
+    for (VertexPtr v1 : mesh->vertices()) {
+        int index1 = vertexIndices[v1];
+        double sum = __DBL_EPSILON__;
+
+        // add neighbor weights
+        for (HalfedgePtr heOut : v1.outgoingHalfedges()) {
+            VertexPtr v2 = heOut.twin().vertex();
+            int index2 = vertexIndices[v2];
+            double weight = (geom->cotan(heOut) + geom->cotan(heOut.twin())) / 2;
+            sum += weight;
+
+            if (branchCover[heOut.edge()] == 1) {
+                weight *= -1;
+            }
+            triplets.push_back(Eigen::Triplet<std::complex<double>>(index1, index2, std::complex<double>(-weight,0)));
+        }
+
+        // add diagonal weight
+        triplets.push_back(Eigen::Triplet<std::complex<double>>(index1, index1, std::complex<double>(sum,0)));  
+    }
+    L.setFromTriplets(triplets.begin(), triplets.end());
+    return L;
+}
+
+VertexData<double> QuadCover::computeOffset() {
+    std::cout << "Computing Offset!" << std::endl;
+    
+    Eigen::SparseMatrix<std::complex<double>> L = buildLaplacian();
+    Eigen::SparseMatrix<std::complex<double>> M = assembleM();
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<std::complex<double>>> solver;
+    solver.compute(L);
+
+    // u <- UniformRand(-1,1)
+    Eigen::MatrixXcd u = Eigen::MatrixXcd::Random(mesh->nVertices(),1);
+    Eigen::MatrixXcd x;
+
+    // inverse power iteration to find eigenvector belonging to the smallest eigenvalue
+    for (int i = 0; i < nPowerIterations; i++) {
+        x = solver.solve(M * u);
+        std::complex<double> norm2 = (x.transpose() * M * x)(0,0);
+        u = x / sqrt(norm2);
+    }
+
+    // store into VertexData
+    VertexData<double> offset(mesh);
+    VertexData<size_t> vertexIndices = mesh->getVertexIndices();
+    for (VertexPtr v : mesh->vertices()) {
+        size_t index = vertexIndices[v];
+        offset[v] = x(index,0).real();
+    }
+
+    emitTriangles(offset);
+    return offset;
+}
+
+void QuadCover::emitTriangles(VertexData<double> offsets) {
+    std::cout << "Emitting Triangles!" << std::endl;
+    
+    
+    /*
+    PolygonSoupMesh soup = PolygonSoupMesh();
+
+    // first add a copy of each vertex position +offset and -offset
+    // 2*index     = +offset
+    // 2*index + 1 = -offset
+    VertexData<size_t> vertexIndices = mesh->getVertexIndices();
+    soup.vertexCoordinates.resize(2 * mesh->nVertices());
+    for (VertexPtr v : mesh->vertices()) {
+        size_t index = vertexIndices[v];
+        Vector3 pos = geom->position(v);
+        Vector3 normal = geom->normal(v);
+        
+        soup.vertexCoordinates[2*index] = geom->position(v) + offsets[v] * normal;
+        soup.vertexCoordinates[2*index+1] = geom->position(v) - offsets[v] * normal;
+    }
+
+    // next add the indices for each face 
+    for (FacePtr f : mesh->faces()) {
+        std::vector<size_t> f1;
+        std::vector<size_t> f2;
+
+        HalfedgePtr he = f.halfedge();
+        do {
+            size_t index = vertexIndices[he.twin().vertex()];
+            if (branchCover[he.edge()] == 0) {
+                // same sheet, so add +offset to triangle
+                f1.push_back(2*index);
+                f2.push_back(2*index+1);
+            } else {
+                assert(branchCover[he.edge()] == 1);
+                // diff sheet, so add -offset to triangle 
+                f1.push_back(2*index+1);
+                f2.push_back(2*index);
+            }
+            he = he.next();
+        } while (he != f.halfedge());
+
+        // emit 2 triangles per original triangle
+        soup.polygons.push_back(f1);
+        soup.polygons.push_back(f2);
+    }
+
+    Geometry<Euclidean>* geomNew;
+    HalfedgeMesh mesh(soup, geomNew);
+    //WavefrontOBJ::write(filename, geom);
+    */
+
+    std::ofstream outfile ("branchcover.obj");
+    // write vertices
+    for (VertexPtr v : mesh->vertices()) {
+        Vector3 pos = geom->position(v) + offsets[v] * geom->normal(v);
+        Vector3 neg = geom->position(v) - offsets[v] * geom->normal(v);
+
+        outfile << "v " << pos.x << " " << pos.y << " " << pos.z << std::endl;
+        outfile << "v " << neg.x << " " << neg.y << " " << neg.z << std::endl;
+    }
+
+    // write face indices
+    VertexData<size_t> vertexIndices = mesh->getVertexIndices();
+    for (FacePtr f : mesh->faces()) {
+        HalfedgePtr he = f.halfedge();
+
+       for (int currSheet = 0; currSheet < 2; currSheet++) {
+           outfile << "f ";
+           do {
+               size_t index = vertexIndices[he.vertex()];
+               if (currSheet == 0) {
+                   outfile << (2*index)+1 << " ";
+               } else {
+                   outfile << (2*index+1)+1 << " ";
+               }
+               currSheet = (currSheet + branchCover[he.edge()]) % 2;
+               he = he.next();
+           } while (he != f.halfedge());
+           outfile << std::endl;
+       }
+    }
+
+    outfile.close();
+    std::cout << "Done!" << std::endl;
 }
