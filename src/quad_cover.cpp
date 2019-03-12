@@ -206,14 +206,30 @@ void QuadCover::computeBranchCover() {
             double theta_ji = phi[he_ij.twin()] + M_PI;
             double rho_ij = theta_ji - theta_ij;
             std::complex<double> r_ij = std::exp(i * rho_ij);
-            
-            std::complex<double> s_ij = f_ji / (f_ij * r_ij);           
+            std::complex<double> s_ij = f_ji / (f_ij * r_ij); 
+
+            double ang = std::arg(s_ij);
+            if (ang >= -M_PI_4 && ang < M_PI_4) {
+                branchCover[he_ij] = 0;
+            } else if (ang >= M_PI_4 && ang < 3.0 * M_PI_4) {
+                branchCover[he_ij] = 1;
+                total = (total + 1) % 4;
+            } else if ((ang >= 3.0 * M_PI_4 && ang <= PI) || 
+                       (ang < -3.0 * M_PI_4 && ang >= -PI)) {
+                branchCover[he_ij] = 2;
+                total = (total + 2) % 4;
+            } else {
+                assert(ang >= -3.0 * M_PI_4 && ang < -M_PI_4);
+                branchCover[he_ij] = 3;
+                total = (total + 3) % 4;
+            }
+            /*          
             if ( (std::arg(s_ij)) >= -M_PI_2 && (std::arg(s_ij)) < M_PI_2 ) {
                 branchCover[he_ij.edge()] = 0;
             } else {
                 branchCover[he_ij.edge()] = 1;
                 total = (total + 1) % 2;
-            }
+            }*/
         }   
         
         if (singularities[f] != 0 && total == 0) {
@@ -241,7 +257,7 @@ Eigen::SparseMatrix<std::complex<double>> QuadCover::buildLaplacian() {
             double weight = (geom->cotan(heOut) + geom->cotan(heOut.twin())) / 2;
             sum += weight;
 
-            if (branchCover[heOut.edge()] == 1) {
+            if (branchCover[heOut] == 1) {
                 weight *= -1;
             }
             triplets.push_back(Eigen::Triplet<std::complex<double>>(index1, index2, std::complex<double>(-weight,0)));
@@ -288,55 +304,6 @@ VertexData<double> QuadCover::computeOffset() {
 void QuadCover::emitTriangles(VertexData<double> offsets) {
     std::cout << "Emitting Triangles!" << std::endl;
     
-    
-    /*
-    PolygonSoupMesh soup = PolygonSoupMesh();
-
-    // first add a copy of each vertex position +offset and -offset
-    // 2*index     = +offset
-    // 2*index + 1 = -offset
-    VertexData<size_t> vertexIndices = mesh->getVertexIndices();
-    soup.vertexCoordinates.resize(2 * mesh->nVertices());
-    for (VertexPtr v : mesh->vertices()) {
-        size_t index = vertexIndices[v];
-        Vector3 pos = geom->position(v);
-        Vector3 normal = geom->normal(v);
-        
-        soup.vertexCoordinates[2*index] = geom->position(v) + offsets[v] * normal;
-        soup.vertexCoordinates[2*index+1] = geom->position(v) - offsets[v] * normal;
-    }
-
-    // next add the indices for each face 
-    for (FacePtr f : mesh->faces()) {
-        std::vector<size_t> f1;
-        std::vector<size_t> f2;
-
-        HalfedgePtr he = f.halfedge();
-        do {
-            size_t index = vertexIndices[he.twin().vertex()];
-            if (branchCover[he.edge()] == 0) {
-                // same sheet, so add +offset to triangle
-                f1.push_back(2*index);
-                f2.push_back(2*index+1);
-            } else {
-                assert(branchCover[he.edge()] == 1);
-                // diff sheet, so add -offset to triangle 
-                f1.push_back(2*index+1);
-                f2.push_back(2*index);
-            }
-            he = he.next();
-        } while (he != f.halfedge());
-
-        // emit 2 triangles per original triangle
-        soup.polygons.push_back(f1);
-        soup.polygons.push_back(f2);
-    }
-
-    Geometry<Euclidean>* geomNew;
-    HalfedgeMesh mesh(soup, geomNew);
-    //WavefrontOBJ::write(filename, geom);
-    */
-
     std::ofstream outfile ("branchcover.obj");
     // write vertices
     for (VertexPtr v : mesh->vertices()) {
@@ -361,7 +328,7 @@ void QuadCover::emitTriangles(VertexData<double> offsets) {
                } else {
                    outfile << (2*index+1)+1 << " ";
                }
-               currSheet = (currSheet + branchCover[he.edge()]) % 2;
+               currSheet = (currSheet + branchCover[he]) % 2;
                he = he.next();
            } while (he != f.halfedge());
            outfile << std::endl;

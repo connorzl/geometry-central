@@ -20,14 +20,14 @@ class QuadCover {
 
         int nPowerIterations = 20;
         double eps = std::pow(10.,-8.);
-        double n = 2;
+        double n = 4;
 
         // quantities
         HalfedgeData<double> phi;
         HalfedgeData<std::complex<double>> r;
         VertexData<std::complex<double>> field;
         FaceData<int> singularities;
-        EdgeData<int> branchCover;
+        HalfedgeData<int> branchCover;
 
         // helpers
         void setup();
