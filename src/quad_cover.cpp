@@ -207,8 +207,8 @@ void QuadCover::computeBranchCover() {
             double rho_ij = theta_ji - theta_ij;
             std::complex<double> r_ij = std::exp(i * rho_ij);
             std::complex<double> s_ij = f_ji / (f_ij * r_ij); 
-
             double ang = std::arg(s_ij);
+            
             if (ang >= -M_PI_4 && ang < M_PI_4) {
                 branchCover[he_ij] = 0;
             } else if (ang >= M_PI_4 && ang < 3.0 * M_PI_4) {
@@ -224,7 +224,7 @@ void QuadCover::computeBranchCover() {
                 total = (total + 3) % 4;
             }
             /*          
-            if ( (std::arg(s_ij)) >= -M_PI_2 && (std::arg(s_ij)) < M_PI_2 ) {
+            if ( ang >= -M_PI_2 && ang < M_PI_2 ) {
                 branchCover[he_ij.edge()] = 0;
             } else {
                 branchCover[he_ij.edge()] = 1;
