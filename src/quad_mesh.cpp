@@ -1,9 +1,11 @@
 #include "geometrycentral/quad_mesh.h"
 #include <Eigen/SparseCholesky>
+#include <queue>
 
 // ONLY WORKS FOR MESHES WITHOUT BOUNDARY
 QuadMesh::QuadMesh(HalfedgeMesh* m, Geometry<Euclidean>* g) : mesh(m), geom(g), theta(m), r(m), field(m), 
-                                                                singularities(m), branchCover(m) {
+                                                                singularities(m), branchCover(m),
+                                                                edgeLengthsCM(m), thetaCM(m), rCM(m), fieldCM(m) {
     assert(mesh->nBoundaryLoops() == 0);
 }
 
@@ -149,7 +151,7 @@ VertexData<int> QuadMesh::computeSingularities() {
     return singularities;
 }
 
-void QuadMesh::computeBranchCover() {
+HalfedgeData<int> QuadMesh::computeBranchCover() {
     std::cout<< "Computing Branch Cover...";
     std::complex<double> i(0, 1);
     for (VertexPtr v : mesh->vertices()) {
@@ -185,4 +187,145 @@ void QuadMesh::computeBranchCover() {
         }
     }
     std::cout << "Done!" << std::endl;
+    return branchCover;
+}
+
+VertexData<double> QuadMesh::uniformize() {
+    size_t n = mesh->nVertices();
+    VertexData<size_t> vertexIndices = mesh->getVertexIndices();
+    
+    // Ax = b, where A = |V| x |V| laplacian, x = |V| x 1 vertex scaling, b = |V| x 1 curvature diff K - K*
+    Eigen::MatrixXd KTarg(n,1);
+    for (VertexPtr v : mesh->vertices()) {
+        size_t index = vertexIndices[v];
+        if (singularities[v] == 0) {
+            KTarg(index,0) = 0;
+        } else if (singularities[v] == 1) {
+            KTarg(index,0) = M_PI_2;
+        } else {
+            assert(singularities[v] == -1);
+            KTarg(index,0) = -M_PI_2;
+        }
+    } 
+
+    EdgeData<double> l0(mesh);
+    geom->getEdgeLengths(l0);
+    geom->getEdgeLengths(edgeLengthsCM);
+
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
+    Eigen::MatrixXd u = Eigen::MatrixXd::Zero(n,1);
+    Eigen::SparseMatrix<double> A;
+    Eigen::MatrixXd K,x;
+    do {
+        A = Operators::intrinsicLaplaceMatrix(mesh,edgeLengthsCM);
+        K = Operators::intrinsicCurvature(mesh,edgeLengthsCM);
+
+        solver.compute(A);
+        x = solver.solve(KTarg - K); // x.norm() becomes nan
+        std::cout << x.norm() << std::endl;
+        u = u + x;
+
+        // update edge lengths
+        for (EdgePtr e : mesh->edges()) {
+            VertexPtr vi = e.halfedge().vertex();
+            VertexPtr vj = e.halfedge().twin().vertex();
+
+            double ui = u(vertexIndices[vi],0);
+            double uj = u(vertexIndices[vj],0);
+
+            double s = std::exp( (ui + uj) / 2 );
+            edgeLengthsCM[e] = l0[e] * s;
+        }
+
+        // check to see if triangle inequality still holds
+        bool triangleInequality = true;
+        for (FacePtr f : mesh->faces()) {
+            HalfedgePtr he = f.halfedge();
+            double a = edgeLengthsCM[he.edge()];
+            double b = edgeLengthsCM[he.next().edge()];
+            double c = edgeLengthsCM[he.prev().edge()];
+            if (a > b + c || b > a + c || c > a + b) {
+                triangleInequality = false;
+                std::cout << "TRIANGLE INEQUALITY VIOLATED!" << std::endl;
+                break;
+            }
+        }    
+        if (!triangleInequality) break;
+    } while (x.norm() > 1e-5);
+
+    // store curvatures for visualization
+    VertexData<double> curvatures(mesh);
+    for (VertexPtr v : mesh->vertices()) {
+        curvatures[v] = K(vertexIndices[v],0);        
+    }
+    return curvatures;
+}
+
+void QuadMesh::setupCM() {
+    HalfedgeData<double> angles = Operators::computeAngles(mesh, edgeLengthsCM); 
+    
+    for (FacePtr f : mesh->faces()) {
+        // Gather elements
+        HalfedgePtr he = f.halfedge();
+        double l_jl = edgeLengthsCM[he.edge()];
+        double l_ij = edgeLengthsCM[he.prev().edge()];
+        double theta_ijl = angles[he.next()];
+
+        // Place first vertex at (0,0)
+        Vector2 j = Vector2{0,0};
+        Vector2 l = Vector2{l_jl,0};
+        Vector2 i = Vector2{cos(theta_ijl) * l_ij, sin(theta_ijl) * l_ij}; 
+
+        Vector2 jl = l - j;
+        Vector2 li = i - l;
+        Vector2 ij = j - i;
+        jl.normalize();
+        li.normalize();
+        ij.normalize();
+
+        thetaCM[he] = std::complex<double>(jl.x,jl.y);
+        thetaCM[he.next()] = std::complex<double>(li.x,li.y);
+        thetaCM[he.prev()] = std::complex<double>(ij.x,ij.y);
+    }
+    
+    // Compute d_ij * r_ji = -d_ji
+    for (VertexPtr v : mesh->vertices()) {
+        for (HalfedgePtr he : v.outgoingHalfedges()) {
+            std::complex<double> theta_ij = theta[he];
+            std::complex<double> theta_ji = theta[he.twin()];
+            rCM[he] = -theta_ij / theta_ji;
+        }
+    }   
+}
+
+FaceData<std::complex<double>> QuadMesh::computeCrossFieldCM() {
+    setupCM();
+
+    // tile faces using BFS and the r_ij
+    // keep in mind that r_ij should be used to transfrom a vector in the face associated with he_ji
+    // so, to transport a vector x_ij across an edge, do x_ij * r[he_ij.twin()]
+    std::map<FacePtr,bool> visited;
+    FacePtr root = mesh->face(0);
+    fieldCM[root] = std::complex<double>(0.5,0.5);
+
+    std::queue<FacePtr> Q; 
+    Q.push(root);
+    while(!Q.empty()) {
+        FacePtr currFace = Q.front();
+        Q.pop();
+
+        // get neighbors			
+        for (HalfedgePtr he : currFace.adjacentHalfedges()) {
+            FacePtr neighbor = he.twin().face();
+            if (visited.find(neighbor) == visited.end()) {
+                Q.push(neighbor);              // add all unvisited neighbors into queue
+                visited[neighbor] = true;      // mark added neighbors as visited
+                fieldCM[neighbor] = rCM[he.twin()] * fieldCM[currFace];
+            }
+        }
+    }
+    for (FacePtr f : mesh->faces()) {
+        fieldCM[f] = std::pow(fieldCM[f],n);
+    }
+    return fieldCM;
 }

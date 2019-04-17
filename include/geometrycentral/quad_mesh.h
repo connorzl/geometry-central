@@ -3,6 +3,7 @@
 #include "geometrycentral/halfedge_mesh.h"
 #include "geometrycentral/geometry.h"
 #include "geometrycentral/polygon_soup_mesh.h"
+#include "geometrycentral/operators.h"
 
 using namespace geometrycentral;
 
@@ -11,7 +12,9 @@ class QuadMesh {
         QuadMesh(HalfedgeMesh* m, Geometry<Euclidean>* g);
         FaceData<std::complex<double>> computeCrossField();
         VertexData<int> computeSingularities();
-        void computeBranchCover();
+        HalfedgeData<int> computeBranchCover();
+        VertexData<double> uniformize();
+        FaceData<std::complex<double>> computeCrossFieldCM();
 
     private:
         HalfedgeMesh* mesh;
@@ -34,4 +37,13 @@ class QuadMesh {
         Eigen::SparseMatrix<std::complex<double>> assembleM();
         Eigen::SparseMatrix<std::complex<double>> assembleA();
         void computeSmoothestField(Eigen::SparseMatrix<std::complex<double>> M, Eigen::SparseMatrix<std::complex<double>> A);
+
+        // cone metric
+        EdgeData<double> edgeLengthsCM;
+        HalfedgeData<std::complex<double>> thetaCM;
+        HalfedgeData<std::complex<double>> rCM;
+        FaceData<std::complex<double>> fieldCM;
+        
+        // helpers
+        void setupCM();
 };

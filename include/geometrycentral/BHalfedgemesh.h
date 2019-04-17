@@ -5,41 +5,27 @@
 
 using namespace geometrycentral;
 
+struct BFace;
+struct BEdge;
+struct BHalfedge;
+struct BVertex;
+
 class BranchCoverTopology {
 public:
-    BranchCoverTopology(HalfedgeMesh* _mesh) : mesh(_mesh) {}
+    BranchCoverTopology(HalfedgeMesh* _mesh, HalfedgeData<int> _eta, VertexData<int> _isSingular) : mesh(_mesh), eta(_eta), singular(_isSingular) {}
 
     // data
     HalfedgeMesh* mesh;
-    HalfedgeData<int> sheetInterchange;
-    VertexData<bool> isSingular;
+    HalfedgeData<int> eta;
+    VertexData<int> singular;
+    int singularSheet = 0;
 
     std::vector<BFace> allFaces();
     std::vector<BVertex> allVertices();
     std::vector<BEdge> allEdges();
-    // ... more
+    std::vector<BHalfedge> allHalfedges();
 
     bool validateConnectivity();
-};
-
-struct BHalfedge {
-    HalfedgePtr he;
-    int sheet;
-    BranchCoverTopology* BC;
-
-    BHalfedge next();
-    BHalfedge twin();
-    BVertex vertex();
-    BEdge edge();
-    BFace face();
-};
-
-struct BVertex {
-    VertexPtr v;
-    int sheet;
-    BranchCoverTopology* BC;
-
-    BHalfedge halfedge(); 
 };
 
 struct BFace {
@@ -58,6 +44,25 @@ struct BEdge {
     BHalfedge halfedge();    
 };
 
+struct BVertex {
+    VertexPtr v;
+    int sheet;
+    BranchCoverTopology* BC;
+
+    BHalfedge halfedge(); 
+};
+
+struct BHalfedge {
+    HalfedgePtr he;
+    int sheet;
+    BranchCoverTopology* BC;
+
+    BHalfedge next();
+    BHalfedge twin();
+    BVertex vertex();
+    BEdge edge();
+    BFace face();
+};
 
 // equality operators
 
@@ -73,7 +78,7 @@ inline BHalfedge BEdge::halfedge() {
 
 // BVertex functions
 inline BHalfedge BVertex::halfedge() {
-    if (BC->isSingular[v]) return BHalfedge{ v.halfedge(), 0, BC };
+    if (BC->singular[v] != 0) return BHalfedge{ v.halfedge(), BC->singularSheet, BC };
     return BHalfedge{ v.halfedge(), sheet, BC };
 }
 
@@ -83,7 +88,7 @@ inline BHalfedge BHalfedge::next() {
 }
 
 inline BHalfedge BHalfedge::twin() {
-    return BHalfedge{ he.twin(), (sheet + BC->sheetInterchange[he]) % 4, BC };
+    return BHalfedge{ he.twin(), (sheet + BC->eta[he]) % 4, BC };
 }
 
 inline BVertex BHalfedge::vertex() {
