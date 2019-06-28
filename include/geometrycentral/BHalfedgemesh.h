@@ -2,6 +2,8 @@
 #pragma once
 
 #include "geometrycentral/halfedge_mesh.h"
+#include <map>
+#include <queue>
 
 using namespace geometrycentral;
 
@@ -13,12 +15,13 @@ struct BVertex;
 class BranchCoverTopology {
 public:
     BranchCoverTopology(){}
-    BranchCoverTopology(HalfedgeMesh* _mesh, HalfedgeData<int> _eta, VertexData<int> _isSingular) : mesh(_mesh), eta(_eta), singular(_isSingular) {}
+    BranchCoverTopology(HalfedgeMesh* _mesh, HalfedgeData<int> _eta, VertexData<int> _isSingular) : mesh(_mesh), eta(_eta), singularities(_isSingular) {}
+    BranchCoverTopology(HalfedgeMesh* _mesh, VertexData<int> _singularities);
 
     // data
     HalfedgeMesh* mesh;
     HalfedgeData<int> eta;
-    VertexData<int> singular;
+    VertexData<int> singularities;
     int singularSheet = 0;
 
     std::vector<BFace> allFaces();
@@ -26,7 +29,14 @@ public:
     std::vector<BEdge> allEdges();
     std::vector<BHalfedge> allHalfedges();
 
+    void computeEta();
+    void validateEta(HalfedgeData<std::complex<double>> edgeVector);
     bool validateConnectivity();
+
+    // computing sheet interchange function eta directly from singular points
+    VertexPtr buildPrimalSpanningTree();
+    std::map<HalfedgePtr,bool> inPrimalTree;
+    std::map<VertexPtr,VertexPtr> vertexParent;
 };
 
 struct BFace {
@@ -58,6 +68,7 @@ struct BVertex {
     BranchCoverTopology* BC;
 
     BHalfedge halfedge(); 
+    std::vector<BFace> adjacentBFaces();
 
     bool operator==(const BVertex& other) const;
     bool operator!=(const BVertex& other) const;
@@ -113,14 +124,28 @@ inline bool BEdge::operator!=(const BEdge& other) const {
 
 // BVertex functions
 inline BHalfedge BVertex::halfedge() {
-    if (BC->singular[v] != 0) return BHalfedge{ v.halfedge(), BC->singularSheet, BC };
+    if (BC->singularities[v] != 0) return BHalfedge{ v.halfedge(), BC->singularSheet, BC };
     return BHalfedge{ v.halfedge(), sheet, BC };
 }
 
+inline std::vector<BFace> BVertex::adjacentBFaces() {
+    std::vector<BFace> BFaces;
+
+    // TODO: might need to fix this for meshes with boundary
+    BHalfedge BHe_orig = halfedge();
+    BHalfedge BHe_curr = BHe_orig;
+    do {
+        BFaces.push_back(BHe_curr.face());
+        BHe_curr = BHe_curr.next().next().twin();
+    } while (BHe_curr != BHe_orig);
+
+    return BFaces;
+}
+
 inline bool BVertex::operator==(const BVertex& other) const {
-    if (BC->singular[v] == 0 && BC->singular[other.v] == 0) {
+    if (BC->singularities[v] == 0 && BC->singularities[other.v] == 0) {
         return ((v == other.v) && (sheet == other.sheet));
-    } else if (BC->singular[v] != 0 && BC->singular[other.v] != 0) {
+    } else if (BC->singularities[v] != 0 && BC->singularities[other.v] != 0) {
         if (sheet != other.sheet) throw std::logic_error("sheets of singular vertices do not match");
         return (v == other.v);
     } else {
@@ -138,15 +163,50 @@ inline BHalfedge BHalfedge::next() {
 }
 
 inline BHalfedge BHalfedge::twin() {
+    if (!he.isReal() && BC->eta[he] != 0) {
+        throw std::logic_error("Boundary halfedge eta is non-zero");
+    }
     return BHalfedge{ he.twin(), (sheet + BC->eta[he]) % 4, BC };
 }
 
-inline BVertex BHalfedge::vertex() {
-    // make sure that each outgoing BHalfedge has the same BVertex
+inline BVertex BHalfedge::vertex() {    
+    /*
+    if (!he.isReal() && BC->eta[he] != 0) {
+        throw std::logic_error("Boundary halfedge eta is non-zero");
+    }
     if (he == he.vertex().halfedge()) {
         int s = (BC->singular[he.vertex()] != 0) ? BC->singularSheet : sheet;
         return BVertex{ he.vertex(), s, BC };
     }
+    return twin().next().vertex();
+    */
+    // make sure that each outgoing BHalfedge has the same BVertex
+    if (!he.isReal()) throw std::logic_error("imaginary BHalfedge being used for vertex");
+
+    BHalfedge BHe_orig = BHalfedge(*this);
+    BHalfedge BHe = BHe_orig;
+    while (true) {
+        if (!BHe.he.isReal()) break;
+        if (BHe.he == BHe.he.vertex().halfedge()) {
+            int s = (BC->singularities[BHe.he.vertex()] != 0) ? BC->singularSheet : BHe.sheet;
+            return BVertex{ BHe.he.vertex(), s, BC };
+        }
+
+        BHe = BHe.twin().next();
+    }
+
+    BHe = BHe_orig;
+    while (true) {
+        if (!BHe.he.isReal()) break;
+
+        if (BHe.he == BHe.he.vertex().halfedge()) {
+            int s = (BC->singularities[BHe.he.vertex()] != 0) ? BC->singularSheet : BHe.sheet;
+            return BVertex{ BHe.he.vertex(), s, BC };
+        }
+
+        BHe = BHe.next().next().twin();
+    }
+    throw std::logic_error("BHalfedge.vertex() code is broken rip");
     return twin().next().vertex();
 }
 
@@ -160,6 +220,7 @@ inline BEdge BHalfedge::edge() {
 }
 
 inline BFace BHalfedge::face() {
+    if (!he.isReal()) throw std::logic_error("imaginary BHalfedge being used for face");
     return BFace{ he.face(), sheet, BC };
 }
 

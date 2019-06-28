@@ -15,7 +15,7 @@
 
 
 // This disables various safety chceks in linear algebra code and solvers
-// #define GC_NLINALG_DEBUG
+ #define GC_NLINALG_DEBUG
 
 // Note: actual solvers implemented with explicit template instantiation in solvers.cpp
 
@@ -106,6 +106,7 @@ template <typename T>
 class PositiveDefiniteSolver final : public LinearSolver<T> {
 
 public:
+  PositiveDefiniteSolver();
   PositiveDefiniteSolver(const Eigen::SparseMatrix<T>& mat_) : LinearSolver<T>(mat_) { prepare(); }
   ~PositiveDefiniteSolver();
 

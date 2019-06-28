@@ -73,7 +73,6 @@ Vector<T> PositiveDefiniteSolver<T>::solve(const Vector<T>& rhs) {
 
 template <typename T>
 void PositiveDefiniteSolver<T>::solve(Vector<T>& x, const Vector<T>& rhs) {
-
   size_t N = this->mat.rows();
 
   // Check some sanity
@@ -83,7 +82,6 @@ void PositiveDefiniteSolver<T>::solve(Vector<T>& x, const Vector<T>& rhs) {
   }
   checkFinite(rhs);
 #endif
-
 
   // Suitesparse version
 #ifdef HAVE_SUITESPARSE

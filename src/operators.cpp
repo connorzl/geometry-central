@@ -28,8 +28,8 @@ Eigen::SparseMatrix<double> Operators::laplaceMatrix(HalfedgeMesh* mesh, Geometr
     return L;
 }
 
-HalfedgeData<double> Operators::computeAngles(HalfedgeMesh* mesh, EdgeData<double> edgeLengths) {
-    HalfedgeData<double> theta(mesh);
+HalfedgeData<double> Operators::computeAngles(HalfedgeMesh* mesh, EdgeData<double> &edgeLengths) {
+    HalfedgeData<double> angles(mesh);
     for (FacePtr f : mesh->faces()) {
         HalfedgePtr he_ij = f.halfedge();
         HalfedgePtr he_jk = he_ij.next();
@@ -39,15 +39,23 @@ HalfedgeData<double> Operators::computeAngles(HalfedgeMesh* mesh, EdgeData<doubl
         double l_jk = edgeLengths[he_jk.edge()];
         double l_ki = edgeLengths[he_ki.edge()];
 
-        theta[he_ij] = acos( (pow(l_ij,2) - pow(l_jk,2) - pow(l_ki,2)) / (-2 * l_jk * l_ki) );
-        theta[he_jk] = acos( (pow(l_jk,2) - pow(l_ij,2) - pow(l_ki,2)) / (-2 * l_ij * l_ki) );
-        theta[he_ki] = acos( (pow(l_ki,2) - pow(l_ij,2) - pow(l_jk,2)) / (-2 * l_ij * l_jk) );
+        angles[he_ij] = acos( (pow(l_ij,2) - pow(l_jk,2) - pow(l_ki,2)) / (-2 * l_jk * l_ki) );
+        angles[he_jk] = acos( (pow(l_jk,2) - pow(l_ij,2) - pow(l_ki,2)) / (-2 * l_ij * l_ki) );
+        angles[he_ki] = acos( (pow(l_ki,2) - pow(l_ij,2) - pow(l_jk,2)) / (-2 * l_ij * l_jk) );
+
+        if (std::isnan(angles[he_ij]) || std::isnan(angles[he_jk]) || std::isnan(angles[he_ki])) {
+            std::cout << (pow(l_ij,2) - pow(l_jk,2) - pow(l_ki,2)) / (-2 * l_jk * l_ki) << std::endl;
+            std::cout << (pow(l_jk,2) - pow(l_ij,2) - pow(l_ki,2)) / (-2 * l_ij * l_ki) << std::endl;
+            std::cout << (pow(l_ki,2) - pow(l_ij,2) - pow(l_jk,2)) / (-2 * l_ij * l_jk) << std::endl;
+            std::cout << l_ij << "," << l_jk << "," << l_ki << std::endl;
+            throw std::logic_error ("triangle inequality violated when computing angles");
+        }
     }
-    return theta;
+    return angles;
 }
 
-Eigen::SparseMatrix<double> Operators::intrinsicLaplaceMatrix(HalfedgeMesh* mesh, EdgeData<double> edgeLengths) {
-    HalfedgeData<double> theta = Operators::computeAngles(mesh, edgeLengths);
+Eigen::SparseMatrix<double> Operators::intrinsicLaplaceMatrix(HalfedgeMesh* mesh, EdgeData<double> &edgeLengths) {
+    HalfedgeData<double> angles = Operators::computeAngles(mesh, edgeLengths);
 
     size_t n = mesh->nVertices();
     Eigen::SparseMatrix<double> L(n,n);
@@ -55,15 +63,24 @@ Eigen::SparseMatrix<double> Operators::intrinsicLaplaceMatrix(HalfedgeMesh* mesh
     VertexData<size_t> vertexIndices = mesh->getVertexIndices();
     for (VertexPtr v1 : mesh->vertices()) {
         int index1 = vertexIndices[v1];
-        double sum = 1e-8;
+        double sum = 0;
 
         // add neighbor weights
         for (HalfedgePtr heOut : v1.outgoingHalfedges()) {
             VertexPtr v2 = heOut.twin().vertex();
             int index2 = vertexIndices[v2];
-            double cot_ij = 1 / tan(theta[heOut]);
-            double cot_ji = 1 / tan(theta[heOut.twin()]);
-            double weight = (cot_ij + cot_ji) / 2;
+            double cot_ij, cot_ji, weight;
+            if (heOut.isReal()) {
+                cot_ij = 1.0 / tan(angles[heOut]);
+            } else {
+                cot_ij = 0;
+            }
+            if (heOut.twin().isReal()) {
+                cot_ji = 1.0 / tan(angles[heOut.twin()]);
+            } else {
+                cot_ji = 0;
+            }
+            weight = (cot_ij + cot_ji) / 2; 
             
             sum += weight;
             triplets.push_back(Eigen::Triplet<double>(index1, index2,-weight));
@@ -72,12 +89,11 @@ Eigen::SparseMatrix<double> Operators::intrinsicLaplaceMatrix(HalfedgeMesh* mesh
         // add diagonal weight
         triplets.push_back(Eigen::Triplet<double>(index1,index1,sum));  
     }
-
     L.setFromTriplets(triplets.begin(), triplets.end());
     return L;
 }
 
-Eigen::MatrixXd Operators::intrinsicCurvature(HalfedgeMesh* mesh, EdgeData<double> edgeLengths) {
+Eigen::MatrixXd Operators::intrinsicCurvature(HalfedgeMesh* mesh, EdgeData<double> &edgeLengths) {
     HalfedgeData<double> theta = Operators::computeAngles(mesh, edgeLengths);
     
     size_t n = mesh->nVertices();
@@ -86,10 +102,11 @@ Eigen::MatrixXd Operators::intrinsicCurvature(HalfedgeMesh* mesh, EdgeData<doubl
     for (VertexPtr v : mesh->vertices()) {
         double sum = 0;
         for (HalfedgePtr he : v.outgoingHalfedges()) {
+            if (he.edge().isBoundary()) continue;
             sum += theta[he.next()];
         }
         if (v.isBoundary()) {
-             K(vertexIndices[v],0) = M_PI - sum;
+            K(vertexIndices[v],0) = M_PI - sum; // this doesn't really matter since u is set to 0
         } else {
             K(vertexIndices[v],0) = 2*M_PI - sum;
         }
@@ -124,5 +141,53 @@ Eigen::SparseMatrix<double> Operators::buildHodgeStar1Form(HalfedgeMesh* mesh, G
     }
     hodge1.setFromTriplets(triplets.begin(), triplets.end());
     return hodge1;
+}
+
+void Operators::hyperbolicEdgeFlips(HalfedgeMesh* mesh, EdgeData<double> &edgeLengthsCM) {
+    int numFlips;
+    do {
+        numFlips = 0;
+        for (EdgePtr e : mesh->edges()) {
+            if (e.isBoundary()) continue;
+            HalfedgePtr he_ij = e.halfedge();
+            HalfedgePtr he_ji = he_ij.twin();
+
+            double l_alpha_ij = edgeLengthsCM[he_ij.edge()];
+            double l_beta_ij = edgeLengthsCM[he_ij.next().edge()];
+            double l_gamma_ij = edgeLengthsCM[he_ij.prev().edge()];
+
+            double l_alpha_ji = edgeLengthsCM[he_ji.edge()];
+            double l_beta_ji = edgeLengthsCM[he_ji.prev().edge()];
+            double l_gamma_ji = edgeLengthsCM[he_ji.next().edge()];
+
+            double alpha_ij = l_alpha_ij / (l_beta_ij * l_gamma_ij);
+            double beta_ij = l_beta_ij / (l_alpha_ij * l_gamma_ij);
+            double gamma_ij = l_gamma_ij / (l_alpha_ij * l_beta_ij);
+
+            double alpha_ji = l_alpha_ji / (l_beta_ji * l_gamma_ji);
+            double beta_ji = l_beta_ji / (l_alpha_ji * l_gamma_ji);
+            double gamma_ji = l_gamma_ji / (l_alpha_ji * l_beta_ji);
+
+            double sum = beta_ij + beta_ji + gamma_ij + gamma_ji - alpha_ij - alpha_ji;
+            if (sum < -1e-12) {
+                e.flip();
+                numFlips++;
+                edgeLengthsCM[e] = (l_gamma_ij * l_beta_ji + l_gamma_ji * l_beta_ij) / l_alpha_ij;
+            }
+        }
+    } while (numFlips > 0);
+}
+
+FaceData<double> Operators::computeAreas(HalfedgeMesh* mesh, EdgeData<double> &edgeLengths) {
+    FaceData<double> faceAreas(mesh);
+    for (FacePtr f : mesh->faces()) {
+        double l_ij = edgeLengths[f.halfedge().edge()       ];
+        double l_jk = edgeLengths[f.halfedge().next().edge()];
+        double l_ki = edgeLengths[f.halfedge().prev().edge()];
+
+        double s = (l_ij + l_jk + l_ki) / 2.0;
+        faceAreas[f] = sqrt( s * (s - l_ij) * (s - l_jk) * (s - l_ki) );
+    }
+    return faceAreas;
 }
 
